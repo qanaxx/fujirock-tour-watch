@@ -29,6 +29,13 @@ const CONFIG = {
       tourCode: 'FRFSTASA2026',
       itineraryCode: '0405',
       url: 'https://yoyaku.collaborationtours.com/plan/FRFSTASA2026/0405/?site=fujirock'
+    },
+    {
+      key: 'sarugakyo-hotel2-0102-test',
+      name: '【検証用】猿ヶ京エリア（ホテル2） 1泊2日',
+      tourCode: 'FRFSTSS2026',
+      itineraryCode: '0102',
+      url: 'https://yoyaku.collaborationtours.com/plan/FRFSTSS2026/0102/?site=fujirock'
     }
   ]
 };
@@ -95,11 +102,7 @@ async function checkPlan(plan) {
   const detail = await getPlanDetail(plan);
   const itineraryId = detail.id;
   const searchResult = await searchReservation(itineraryId);
-  const remainingInventory = Number(
-    searchResult &&
-    searchResult.tourItinerary &&
-    searchResult.tourItinerary.remainingInventory
-  ) || 0;
+  const remainingInventory = getAvailableInventory(searchResult);
 
   return {
     key: plan.key,
@@ -145,6 +148,34 @@ function searchReservation(itineraryId) {
     null,
     payload
   );
+}
+
+function getAvailableInventory(searchResult) {
+  let available = Number(
+    searchResult &&
+    searchResult.tourItinerary &&
+    searchResult.tourItinerary.remainingInventory
+  ) || 0;
+
+  const roomClasses = searchResult && Array.isArray(searchResult.tourHotelRoomClasses)
+    ? searchResult.tourHotelRoomClasses
+    : [];
+
+  roomClasses.forEach(function (roomClass) {
+    if (!roomClass || roomClass.isAvailable === false) return;
+
+    const directRemaining = Number(roomClass.remainingInventory) || 0;
+    if (directRemaining > available) available = directRemaining;
+
+    const inventories = Array.isArray(roomClass.inventories) ? roomClass.inventories : [];
+    inventories.forEach(function (inventory) {
+      if (!inventory || inventory.isActive === false) return;
+      const remaining = (Number(inventory.quantity) || 0) - (Number(inventory.occupied) || 0);
+      if (remaining > available) available = remaining;
+    });
+  });
+
+  return Math.max(available, 0);
 }
 
 function requestJson(method, urlString, query, body) {
