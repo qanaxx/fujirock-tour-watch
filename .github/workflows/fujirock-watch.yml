@@ -1,0 +1,31 @@
+name: FUJI ROCK Tour Watch
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check availability
+        env:
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_TO: ${{ secrets.LINE_TO }}
+          LINE_BROADCAST: ${{ secrets.LINE_BROADCAST }}
+          NOTIFY_EVERY_AVAILABLE: true
+          CHECK_INTERVAL_MS: 300000
+          DEPARTURE_DATE: 2026-07-23
+          ADULTS: 2
+        run: npm run once

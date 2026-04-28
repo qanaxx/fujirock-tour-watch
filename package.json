@@ -1,0 +1,14 @@
+{
+  "name": "fujirock-tour-watch",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FUJI ROCK official tour availability watcher with LINE Messaging API notifications.",
+  "scripts": {
+    "start": "node src/fujirock-watch.js",
+    "once": "node src/fujirock-watch.js --once",
+    "test-line": "node src/fujirock-watch.js --test-line"
+  },
+  "engines": {
+    "node": ">=12"
+  }
+}
