@@ -29,13 +29,6 @@ const CONFIG = {
       tourCode: 'FRFSTASA2026',
       itineraryCode: '0405',
       url: 'https://yoyaku.collaborationtours.com/plan/FRFSTASA2026/0405/?site=fujirock'
-    },
-    {
-      key: 'sarugakyo-hotel2-0102-test',
-      name: '【検証用】猿ヶ京エリア（ホテル2） 1泊2日',
-      tourCode: 'FRFSTSS2026',
-      itineraryCode: '0102',
-      url: 'https://yoyaku.collaborationtours.com/plan/FRFSTSS2026/0102/?site=fujirock'
     }
   ]
 };
