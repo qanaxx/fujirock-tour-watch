@@ -156,6 +156,8 @@ function getAvailableInventory(searchResult) {
 
   roomClasses.forEach(function (roomClass) {
     if (!roomClass || roomClass.isAvailable === false) return;
+    if (roomClass.tourBasicPlan && roomClass.tourBasicPlan.isDisplayFront === false) return;
+    if (roomClass.reservationTypeCode === 'NONE') return;
 
     const directRemaining = Number(roomClass.remainingInventory) || 0;
     if (directRemaining > available) available = directRemaining;
