@@ -39,6 +39,9 @@ const CONFIG = {
       tourCode: 'FRFACCESS26YUZAWA',
       itineraryCode: '0001',
       departureDates: ['2026-07-24', '2026-07-25', '2026-07-26'],
+      excludedBusSeats: [
+        { departureDate: '2026-07-24', id: 1866 }
+      ],
       adults: 1,
       url: 'https://yoyaku.collaborationtours.com/plan/FRFACCESS26YUZAWA/0001?site=fujirock/'
     }
@@ -89,7 +92,7 @@ async function runOnce() {
       return result.available;
     }
     const previous = state[result.key];
-    return result.available && (!previous || previous.available !== true);
+    return shouldNotify(result, previous);
   });
 
   for (const result of notifications) {
@@ -156,7 +159,7 @@ async function checkBusSeatPlan(plan) {
 
   for (const departureDate of plan.departureDates) {
     const searchResult = await searchReservation(itineraryId, departureDate, adults);
-    const selectableBusSeats = getSelectableBusSeats(searchResult);
+    const selectableBusSeats = getSelectableBusSeats(searchResult, plan, departureDate);
 
     results.push({
       key: `${plan.key}-${departureDate}`,
@@ -240,7 +243,7 @@ function getAvailableInventory(searchResult) {
   return Math.max(available, 0);
 }
 
-function getSelectableBusSeats(searchResult) {
+function getSelectableBusSeats(searchResult, plan, departureDate) {
   const busSeats = searchResult && Array.isArray(searchResult.tourBusSeatClasses)
     ? searchResult.tourBusSeatClasses
     : [];
@@ -251,6 +254,7 @@ function getSelectableBusSeats(searchResult) {
       if (busSeat.tourBasicPlan && busSeat.tourBasicPlan.isDisplayFront === false) return false;
       if (busSeat.reservationTypeCode === 'NONE') return false;
       if (busSeat.purchaseContract && busSeat.purchaseContract.isCheckBooking === true) return false;
+      if (isExcludedBusSeat(plan, departureDate, busSeat)) return false;
       return true;
     })
     .map(function (busSeat) {
@@ -265,6 +269,37 @@ function getSelectableBusSeats(searchResult) {
         arrivalTime: getFirstTime(busSeat.busStops, 'departureTime')
       };
     });
+}
+
+function isExcludedBusSeat(plan, departureDate, busSeat) {
+  const excludedBusSeats = Array.isArray(plan.excludedBusSeats)
+    ? plan.excludedBusSeats
+    : [];
+
+  return excludedBusSeats.some(function (excluded) {
+    return excluded &&
+      excluded.departureDate === departureDate &&
+      Number(excluded.id) === Number(busSeat.id);
+  });
+}
+
+function shouldNotify(result, previous) {
+  if (!result.available) return false;
+  if (!previous || previous.available !== true) return true;
+
+  if (result.kind === 'bus-seat') {
+    return getBusSeatIds(result.selectableBusSeats).join(',') !==
+      getBusSeatIds(previous.selectableBusSeats).join(',');
+  }
+
+  return false;
+}
+
+function getBusSeatIds(busSeats) {
+  return (Array.isArray(busSeats) ? busSeats : [])
+    .map(function (busSeat) { return Number(busSeat.id); })
+    .filter(function (id) { return !Number.isNaN(id); })
+    .sort(function (a, b) { return a - b; });
 }
 
 function getI18nName(value) {
