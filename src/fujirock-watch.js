@@ -17,6 +17,7 @@ const CONFIG = {
   stateFile: path.resolve(ROOT, process.env.STATE_FILE || 'state/availability-state.json'),
   plans: [
     {
+      kind: 'inventory',
       key: 'naeba-prince-hotel-0405',
       name: '苗場プリンスホテル 4泊5日',
       tourCode: 'FRFSTPH2026',
@@ -24,17 +25,31 @@ const CONFIG = {
       url: 'https://yoyaku.collaborationtours.com/plan/FRFSTPH2026/0405/?site=fujirock'
     },
     {
+      kind: 'inventory',
       key: 'naeba-asagai-minshuku-0405',
       name: '苗場・浅貝エリア（民宿） 4泊5日',
       tourCode: 'FRFSTASA2026',
       itineraryCode: '0405',
       url: 'https://yoyaku.collaborationtours.com/plan/FRFSTASA2026/0405/?site=fujirock'
+    },
+    {
+      kind: 'bus-seat',
+      key: 'echigoyuzawa-fast-bus',
+      name: '予約制・越後湯沢ファストバス',
+      tourCode: 'FRFACCESS26YUZAWA',
+      itineraryCode: '0001',
+      departureDates: ['2026-07-24', '2026-07-25', '2026-07-26'],
+      adults: 1,
+      url: 'https://yoyaku.collaborationtours.com/plan/FRFACCESS26YUZAWA/0001?site=fujirock/'
     }
   ]
 };
 
 async function main() {
   const args = process.argv.slice(2);
+  if (args.indexOf('--dry-run') !== -1) {
+    process.env.DRY_RUN = 'true';
+  }
 
   if (args.indexOf('--test-line') !== -1) {
     await sendLine('FUJI ROCK空き通知の送信テストです。');
@@ -62,9 +77,11 @@ async function runOnce() {
   const results = [];
 
   for (const plan of CONFIG.plans) {
-    const result = await checkPlan(plan);
-    results.push(result);
-    console.log(formatStatus(result));
+    const planResults = await checkPlan(plan);
+    planResults.forEach(function (result) {
+      results.push(result);
+      console.log(formatStatus(result));
+    });
   }
 
   const notifications = results.filter(function (result) {
@@ -76,8 +93,12 @@ async function runOnce() {
   });
 
   for (const result of notifications) {
-    await sendLine(buildMessage(result));
-    console.log(`LINE notified: ${result.name}`);
+    if (isTruthy(process.env.DRY_RUN)) {
+      console.log(`DRY RUN LINE notification skipped: ${result.name}`);
+    } else {
+      await sendLine(buildMessage(result));
+      console.log(`LINE notified: ${result.name}`);
+    }
   }
 
   const nextState = {};
@@ -85,31 +106,77 @@ async function runOnce() {
     nextState[result.key] = {
       available: result.available,
       remainingInventory: result.remainingInventory,
+      selectableBusSeats: result.selectableBusSeats,
       checkedAt: result.checkedAt
     };
   });
-  writeState(CONFIG.stateFile, nextState);
+  if (isTruthy(process.env.DRY_RUN)) {
+    console.log('DRY RUN state file not written.');
+  } else {
+    writeState(CONFIG.stateFile, nextState);
+  }
 }
 
 async function checkPlan(plan) {
+  if (plan.kind === 'bus-seat') {
+    return checkBusSeatPlan(plan);
+  }
+  return [await checkInventoryPlan(plan)];
+}
+
+async function checkInventoryPlan(plan) {
   const detail = await getPlanDetail(plan);
   const itineraryId = detail.id;
-  const searchResult = await searchReservation(itineraryId);
+  const departureDate = plan.departureDate || CONFIG.departureDate;
+  const adults = Number(plan.adults || CONFIG.adults);
+  const searchResult = await searchReservation(itineraryId, departureDate, adults);
   const remainingInventory = getAvailableInventory(searchResult);
 
   return {
     key: plan.key,
+    kind: plan.kind || 'inventory',
     name: plan.name,
     url: plan.url,
     tourCode: plan.tourCode,
     itineraryCode: plan.itineraryCode,
-    departureDate: CONFIG.departureDate,
-    adults: CONFIG.adults,
+    departureDate: departureDate,
+    adults: adults,
     itineraryId: itineraryId,
     remainingInventory: remainingInventory,
     available: remainingInventory > 0,
     checkedAt: new Date().toISOString()
   };
+}
+
+async function checkBusSeatPlan(plan) {
+  const detail = await getPlanDetail(plan);
+  const itineraryId = detail.id;
+  const adults = Number(plan.adults || CONFIG.adults);
+  const results = [];
+
+  for (const departureDate of plan.departureDates) {
+    const searchResult = await searchReservation(itineraryId, departureDate, adults);
+    const selectableBusSeats = getSelectableBusSeats(searchResult);
+
+    results.push({
+      key: `${plan.key}-${departureDate}`,
+      kind: plan.kind,
+      name: plan.name,
+      url: getBookingUrl(itineraryId, departureDate),
+      planUrl: plan.url,
+      tourCode: plan.tourCode,
+      itineraryCode: plan.itineraryCode,
+      departureDate: departureDate,
+      adults: adults,
+      itineraryId: itineraryId,
+      remainingInventory: selectableBusSeats.length,
+      selectableBusSeats: selectableBusSeats,
+      available: selectableBusSeats.length > 0,
+      checkedAt: new Date().toISOString()
+    });
+  }
+
+  return results;
 }
 
 function getPlanDetail(plan) {
@@ -120,17 +187,17 @@ function getPlanDetail(plan) {
   return requestJson('GET', CONFIG.apiBase + '/user-api/spice/tour/integrate/tours/planDetail', query);
 }
 
-function searchReservation(itineraryId) {
+function searchReservation(itineraryId, departureDate, adults) {
   const payload = {
     tourItineraryId: itineraryId,
-    departureDate: CONFIG.departureDate,
+    departureDate: departureDate,
     languageId: CONFIG.languageId,
     tourReservationNumbers: [
       {
         userTypeId: 1,
         reservationRoomNumber: 1,
-        numberReservation: CONFIG.adults,
-        useUsers: CONFIG.adults
+        numberReservation: adults,
+        useUsers: adults
       }
     ]
   };
@@ -171,6 +238,49 @@ function getAvailableInventory(searchResult) {
   });
 
   return Math.max(available, 0);
+}
+
+function getSelectableBusSeats(searchResult) {
+  const busSeats = searchResult && Array.isArray(searchResult.tourBusSeatClasses)
+    ? searchResult.tourBusSeatClasses
+    : [];
+
+  return busSeats
+    .filter(function (busSeat) {
+      if (!busSeat || busSeat.isAvailable === false) return false;
+      if (busSeat.tourBasicPlan && busSeat.tourBasicPlan.isDisplayFront === false) return false;
+      if (busSeat.reservationTypeCode === 'NONE') return false;
+      if (busSeat.purchaseContract && busSeat.purchaseContract.isCheckBooking === true) return false;
+      return true;
+    })
+    .map(function (busSeat) {
+      return {
+        id: busSeat.id,
+        name: getI18nName(busSeat.busRouteClass) ||
+          (busSeat.purchaseContract && busSeat.purchaseContract.name) ||
+          `busSeat:${busSeat.id}`,
+        reservationTypeCode: busSeat.reservationTypeCode,
+        remainingInventory: Number(busSeat.remainingInventory),
+        departureTime: getFirstTime(busSeat.busBoardings, 'departureTime'),
+        arrivalTime: getFirstTime(busSeat.busStops, 'departureTime')
+      };
+    });
+}
+
+function getI18nName(value) {
+  return value &&
+    value.i18ns &&
+    value.i18ns[String(CONFIG.languageId)] &&
+    value.i18ns[String(CONFIG.languageId)].name;
+}
+
+function getFirstTime(items, key) {
+  if (!Array.isArray(items) || !items[0]) return '';
+  return items[0][key] || '';
+}
+
+function getBookingUrl(itineraryId, departureDate) {
+  return `${CONFIG.apiBase}/booking/plan/setting/${itineraryId}/${departureDate.replace(/-/g, '')}/`;
 }
 
 function requestJson(method, urlString, query, body) {
@@ -226,6 +336,10 @@ function requestJson(method, urlString, query, body) {
 }
 
 function buildMessage(result) {
+  if (result.kind === 'bus-seat') {
+    return buildBusSeatMessage(result);
+  }
+
   return [
     'FUJI ROCKオフィシャルツアーに空きが出ました。',
     '',
@@ -233,6 +347,25 @@ function buildMessage(result) {
     `出発日: ${result.departureDate}`,
     `人数: 大人${result.adults}名`,
     `残数: ${result.remainingInventory}`,
+    '',
+    result.url
+  ].join('\n');
+}
+
+function buildBusSeatMessage(result) {
+  const seats = result.selectableBusSeats.map(function (seat) {
+    return `- ${seat.name}`;
+  });
+
+  return [
+    'FUJI ROCKオフィシャルツアーで選択できる便が出ました。',
+    '',
+    `対象: ${result.name}`,
+    `出発日: ${result.departureDate}`,
+    `人数: 大人${result.adults}名`,
+    `選択可能便数: ${result.selectableBusSeats.length}`,
+    '',
+    seats.join('\n'),
     '',
     result.url
   ].join('\n');
@@ -321,6 +454,9 @@ function loadDotEnv(filePath) {
 
 function formatStatus(result) {
   const status = result.available ? 'AVAILABLE' : 'sold out';
+  if (result.kind === 'bus-seat') {
+    return `[${result.checkedAt}] ${status} ${result.name} ${result.departureDate} selectable=${result.remainingInventory}`;
+  }
   return `[${result.checkedAt}] ${status} ${result.name} remaining=${result.remainingInventory}`;
 }
 

@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node src/fujirock-watch.js",
     "once": "node src/fujirock-watch.js --once",
+    "dry-run": "node src/fujirock-watch.js --once --dry-run",
     "test-line": "node src/fujirock-watch.js --test-line"
   },
   "engines": {

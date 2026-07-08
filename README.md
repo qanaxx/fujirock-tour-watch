@@ -9,6 +9,10 @@
 - 出発日: 2026-07-23
 - 参加人数: 大人2名
 - 予約可能判定: 予約APIの `tourItinerary.remainingInventory` が1以上
+- 予約制・越後湯沢ファストバス / 0泊1日
+- 出発日: 2026-07-24, 2026-07-25, 2026-07-26
+- 参加人数: 大人1名
+- 予約可能判定: 利用便の `reservationTypeCode` が `NONE` 以外
 
 ## セットアップ
 
@@ -47,6 +51,12 @@ LINE送信テスト:
 
 ```bash
 npm run test-line
+```
+
+LINE送信なしで1回だけ確認:
+
+```bash
+npm run dry-run
 ```
 
 ## 重複通知
